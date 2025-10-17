@@ -1,0 +1,8 @@
+{
+  "name": "勤怠管理",
+  "short_name": "勤怠管理",
+  "icons": [
+    { "src": "./勤怠ロゴ.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "./勤怠ロゴ.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}
