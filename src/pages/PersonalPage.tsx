@@ -204,56 +204,77 @@ export default function PersonalPage() {
     debugHolidays(now.getFullYear(), now.getMonth() + 1);
   }, []);
 
-  // 今日の勤怠データ取得
-  useEffect(() => {
+  // 今日の勤怠データ取得（統合版）
+  const loadTodayData = async (isInitialLoad = false) => {
     if (!employeeCode) return;
 
-    const loadTodayData = async () => {
+    if (isInitialLoad) {
       setLoading(true);
-      try {
-        const res = await api.master(currentDate);
-        const list = res.list ?? [];
-        const employeeData = list.find((emp) => emp.code === employeeCode.trim()) || null;
-        setTodayData(employeeData);
+    }
 
+    try {
+      const res = await api.master(currentDate);
+      const list = res.list ?? [];
+      const employeeData = list.find((emp) => emp.code === employeeCode.trim()) || null;
+      setTodayData(employeeData);
+
+      if (typeof process !== 'undefined' && process.env?.NODE_ENV === 'development') {
+        console.log('📊 データ読み込み:', { 
+          employeeData, 
+          clock_in: employeeData?.clock_in,
+          clock_out: employeeData?.clock_out,
+          status: employeeData?.status,
+          isInitialLoad
+        });
+      }
+
+      // ユーザー情報
+      if (employeeData) {
+        setUserInfo({
+          name: employeeData.name,
+          department: employeeData.dept || employeeData.department_name || employeeData.department || '未所属',
+          dept: employeeData.dept,
+        });
         if (typeof process !== 'undefined' && process.env?.NODE_ENV === 'development') {
-          console.log('📊 初期データ読み込み:', { 
-            employeeData, 
-            clock_in: employeeData?.clock_in,
-            clock_out: employeeData?.clock_out,
-            status: employeeData?.status
-          });
-        }
-
-        // ユーザー情報
-        if (employeeData) {
-          setUserInfo({
+          console.log('👤 ユーザー情報設定:', {
             name: employeeData.name,
-            department: employeeData.dept || employeeData.department_name || employeeData.department || '未所属',
             dept: employeeData.dept,
+            department_name: employeeData.department_name,
+            department: employeeData.department,
+            final: employeeData.dept || employeeData.department_name || employeeData.department || '未所属'
           });
-          if (typeof process !== 'undefined' && process.env?.NODE_ENV === 'development') {
-            console.log('👤 ユーザー情報設定:', {
-              name: employeeData.name,
-              dept: employeeData.dept,
-              department_name: employeeData.department_name,
-              department: employeeData.department,
-              final: employeeData.dept || employeeData.department_name || employeeData.department || '未所属'
-            });
-          }
-        } else {
-          setUserInfo(null);
         }
+      } else {
+        setUserInfo(null);
+      }
 
+      // 月別データも同時更新
+      if (employeeData) {
+        setMonthlyData(prev => ({
+          ...prev,
+          [currentDate]: employeeData
+        }));
+      }
+
+      if (isInitialLoad) {
         setMsg('');
-      } catch (e: any) {
+      }
+    } catch (e: any) {
+      if (isInitialLoad) {
         setMsg(String(e?.message ?? e));
-      } finally {
+      }
+      console.error('データ読み込みエラー:', e);
+    } finally {
+      if (isInitialLoad) {
         setLoading(false);
       }
-    };
+    }
+  };
 
-    loadTodayData();
+  // 初期データ読み込み
+  useEffect(() => {
+    if (!employeeCode) return;
+    loadTodayData(true);
   }, [employeeCode, currentDate]);
 
   // 月別データ取得（一時的に無効化）
@@ -329,30 +350,15 @@ export default function PersonalPage() {
 
   // リアルタイム更新を有効化（useRealtimeフックを削除したため、手動で実装）
 
-  // 🔄 リアルタイム更新：5秒ごとにデータを再読み込み（より即座に反映）
+  // 🔄 リアルタイム更新：5秒ごとにデータを再読み込み（最適化版）
   useEffect(() => {
     if (!employeeCode) return;
 
     const interval = setInterval(async () => {
       console.log('🔄 定期更新: データを再読み込み中...');
 
-      // 今日のデータを更新
-      try {
-        const todayRes = await api.master(currentDate);
-        const list = todayRes.list ?? [];
-        const todayEmployee = list.find((emp: MasterRow) => emp.code === employeeCode.trim());
-        if (todayEmployee) {
-          setTodayData(todayEmployee);
-
-          // 月別データも同時更新
-          setMonthlyData(prev => ({
-            ...prev,
-            [currentDate]: todayEmployee
-          }));
-        }
-      } catch (e) {
-        console.error('今日のデータ更新エラー:', e);
-      }
+      // 統合されたデータ読み込み関数を使用
+      await loadTodayData(false);
 
       // 備考も更新（現在の月のみ）
       const currentMonth = new Date().toISOString().slice(0, 7);
@@ -363,12 +369,12 @@ export default function PersonalPage() {
           console.error('備考更新エラー:', e);
         }
       }
-    }, 5000); // 5秒ごと（より即座に反映）
+    }, 5000); // 5秒ごと
 
     return () => clearInterval(interval);
   }, [employeeCode, selectedMonth, currentDate]);
 
-  // 📱 ウィンドウフォーカス時の自動更新
+  // 📱 ウィンドウフォーカス時の自動更新（最適化版）
   useEffect(() => {
     if (!employeeCode) return;
 
@@ -376,17 +382,8 @@ export default function PersonalPage() {
       try {
         console.log('🔄 ウィンドウフォーカス: データを更新中...');
         
-        // 今日のデータを更新
-        const todayRes = await api.master(currentDate);
-        const list = todayRes.list ?? [];
-        const todayEmployee = list.find((emp: MasterRow) => emp.code === employeeCode.trim());
-        if (todayEmployee) {
-          setTodayData(todayEmployee);
-          setMonthlyData(prev => ({
-            ...prev,
-            [currentDate]: todayEmployee
-          }));
-        }
+        // 統合されたデータ読み込み関数を使用
+        await loadTodayData(false);
         
         // 備考も更新
         loadMonthlyRemarks(selectedMonth);
@@ -475,31 +472,10 @@ export default function PersonalPage() {
       if (result.ok) {
         setMsg(`✅ 出勤しました！ ${result.time || ''}`);
         
-        // 最新データを即座に取得して確実に状態更新
-        const res = await api.master(currentDate);
-        const list = res.list ?? [];
-        const employeeData = list.find((emp) => emp.code === employeeCode.trim()) || null;
+        // 統合されたデータ読み込み関数を使用
+        await loadTodayData(false);
         
-        if (employeeData) {
-          console.log('📥 出勤後の取得データ:', employeeData);
-          setTodayData(employeeData);
-          setMonthlyData((prev) => ({
-            ...prev,
-            [currentDate]: employeeData,
-          }));
-          
-          if (employeeData.clock_in) {
-            console.log('✅ 出勤後データ更新完了:', {
-              clock_in: employeeData.clock_in,
-              clock_out: employeeData.clock_out,
-              name: employeeData.name
-            });
-          } else {
-            console.warn('⚠️ 出勤時刻がデータに含まれていません:', employeeData);
-          }
-        } else {
-          console.warn('⚠️ 出勤後に社員データが見つかりません');
-        }
+        console.log('✅ 出勤後データ更新完了');
         
         // 即座に月別データも更新（リアルタイム反映）
         setTimeout(async () => {
@@ -522,12 +498,7 @@ export default function PersonalPage() {
         setMsg('⚠️ 既に出勤済みです。');
         
         try {
-          const res = await api.master(currentDate);
-          const list = res.list ?? [];
-          const employeeData = list.find((emp) => emp.code === employeeCode.trim()) || null;
-          if (employeeData) {
-            setTodayData(employeeData);
-          }
+          await loadTodayData(false);
         } catch (_) {}
       } else {
         setMsg(`❌ ${errMsg}`);
@@ -560,21 +531,10 @@ export default function PersonalPage() {
       if (result.ok) {
         setMsg(`✅ 退勤しました！ ${result.time || ''}`);
         
-        // 最新データを即座に取得して確実に状態更新
-        const res = await api.master(currentDate);
-        const list = res.list ?? [];
-        const employeeData = list.find((emp) => emp.code === employeeCode.trim()) || null;
+        // 統合されたデータ読み込み関数を使用
+        await loadTodayData(false);
         
-        if (employeeData && employeeData.clock_out) {
-          setTodayData(employeeData);
-          setMonthlyData((prev) => ({
-            ...prev,
-            [currentDate]: employeeData,
-          }));
-          console.log('✅ 退勤後データ更新完了:', employeeData);
-        } else {
-          console.warn('⚠️ 退勤データが見つかりません:', employeeData);
-        }
+        console.log('✅ 退勤後データ更新完了');
         
         // 即座に月別データも更新（リアルタイム反映）
         setTimeout(async () => {
@@ -597,12 +557,7 @@ export default function PersonalPage() {
         setMsg('⚠️ 既に退勤済みです。');
         
         try {
-          const res = await api.master(currentDate);
-          const list = res.list ?? [];
-          const employeeData = list.find((emp) => emp.code === employeeCode.trim()) || null;
-          if (employeeData) {
-            setTodayData(employeeData);
-          }
+          await loadTodayData(false);
         } catch (_) {}
       } else {
         setMsg(`❌ ${errMsg}`);
